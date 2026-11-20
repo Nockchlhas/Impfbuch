@@ -131,3 +131,47 @@ test('Länder-Codes eindeutig', () => {
   const codes = COUNTRIES.map((c) => c.code);
   assert.equal(new Set(codes).size, codes.length);
 });
+
+import { parseDateInput, formatDateTyping } from '../js/dates.js';
+import { suggestVaccines, detectProduct } from '../js/search.js';
+
+test('Datumseingabe ohne Kalender', () => {
+  const t = '2026-11-20';
+  assert.equal(parseDateInput('05.12.2016', t), '2016-12-05');
+  assert.equal(parseDateInput('5.12.16', t), '2016-12-05');
+  assert.equal(parseDateInput('05122016', t), '2016-12-05');
+  assert.equal(parseDateInput('051216', t), '2016-12-05');
+  assert.equal(parseDateInput('5,12,2016', t), '2016-12-05');
+  assert.equal(parseDateInput('14.4.92', t), '1992-04-14');
+  assert.equal(parseDateInput('2016-12-05', t), '2016-12-05');
+  assert.equal(parseDateInput('31.02.2020', t), null);
+  assert.equal(parseDateInput('abc', t), null);
+  assert.equal(formatDateTyping('05'), '05.');
+  assert.equal(formatDateTyping('0512'), '05.12.');
+  assert.equal(formatDateTyping('05122016'), '05.12.2016');
+  assert.equal(formatDateTyping('5,12,'), '5.12.');
+  assert.equal(formatDateTyping('05.1', true), '05.1');
+  assert.equal(formatDateTyping('051220161'), '05.12.2016');
+});
+
+test('Namenssuche schlägt Impfstoff vor', () => {
+  assert.equal(suggestVaccines('boos')[0].productId, 'tdap');
+  assert.equal(suggestVaccines('Boostrix Polio')[0].productId, 'tdap-ipv');
+  assert.equal(suggestVaccines('comirnaty')[0].productId, 'covid');
+  assert.equal(suggestVaccines('Comirnati')[0].productId, 'covid'); // Tippfehler
+  assert.equal(suggestVaccines('fsme immun')[0].productId, 'fsme-immun');
+  assert.equal(suggestVaccines('zecken')[0].productId, 'fsme-immun');
+  assert.equal(suggestVaccines('grippe')[0].productId, 'flu');
+  assert.equal(suggestVaccines('Priorix')[0].productId, 'mmr');
+  assert.equal(suggestVaccines('Twinrix')[0].productId, 'twinrix');
+  assert.equal(detectProduct('Repevax').productId, 'tdap-ipv');
+  assert.equal(detectProduct('xyz'), null);
+  assert.deepEqual(suggestVaccines(''), []);
+});
+
+test('Zostavax zählt nicht als Shingrix', () => {
+  const s = state({ profile: { birthdate: '1955-01-01' }, vaccinations: [v('2015-01-01', 'zostavax', ['zoster'])] });
+  const r = run(s);
+  assert.equal(r.zoster.status, 'missing');
+  assert.ok(r.zoster.hints.length);
+});

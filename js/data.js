@@ -48,6 +48,7 @@ export const PRODUCTS = [
   { id: 'td-ipv', cat: 'Tetanus / Diphtherie / Keuchhusten / Polio', name: 'Td-IPV (+ Polio)', examples: 'Revaxis', diseases: ['tetanus', 'diphtherie', 'polio'] },
   { id: 't', cat: 'Tetanus / Diphtherie / Keuchhusten / Polio', name: 'Tetanus (einzeln)', examples: 'Tetanol pur', diseases: ['tetanus'] },
   { id: 'ipv', cat: 'Tetanus / Diphtherie / Keuchhusten / Polio', name: 'Polio (IPV, einzeln)', examples: 'IPV Mérieux', diseases: ['polio'] },
+  { id: 'opv', cat: 'Tetanus / Diphtherie / Keuchhusten / Polio', name: 'Polio-Schluckimpfung (OPV, bis 1998)', examples: 'Sabin, Oral-Virelon', diseases: ['polio'] },
   { id: 'hexa', cat: 'Tetanus / Diphtherie / Keuchhusten / Polio', name: '6-fach (Säuglinge)', examples: 'Hexyon, Infanrix hexa, Vaxelis', diseases: ['tetanus', 'diphtherie', 'pertussis', 'polio', 'hib', 'hepb'] },
   { id: 'penta', cat: 'Tetanus / Diphtherie / Keuchhusten / Polio', name: '5-fach (Säuglinge)', examples: 'Infanrix-IPV+Hib, Pentavac', diseases: ['tetanus', 'diphtherie', 'pertussis', 'polio', 'hib'] },
   { id: 'dtap', cat: 'Tetanus / Diphtherie / Keuchhusten / Polio', name: 'DTaP (Kinder)', examples: 'Infanrix', diseases: ['tetanus', 'diphtherie', 'pertussis'] },
@@ -74,6 +75,7 @@ export const PRODUCTS = [
   { id: 'flu', cat: 'Weitere Standardimpfungen', name: 'Influenza (Grippe)', examples: 'Vaxigrip Tetra, Influvac, Efluelda, Fluad', diseases: ['influenza'] },
   { id: 'covid', cat: 'Weitere Standardimpfungen', name: 'COVID-19', examples: 'Comirnaty, Spikevax, Nuvaxovid', diseases: ['covid'] },
   { id: 'shingrix', cat: 'Weitere Standardimpfungen', name: 'Herpes zoster (Totimpfstoff)', examples: 'Shingrix', diseases: ['zoster'] },
+  { id: 'zostavax', cat: 'Weitere Standardimpfungen', name: 'Herpes zoster (Lebendimpfstoff, alt)', examples: 'Zostavax', diseases: ['zoster'] },
   { id: 'rsv', cat: 'Weitere Standardimpfungen', name: 'RSV', examples: 'Arexvy, Abrysvo, mResvia', diseases: ['rsv'] },
 
   { id: 'fsme-immun', cat: 'Reiseimpfungen', name: 'FSME (FSME-Immun)', examples: 'FSME-Immun Erwachsene', diseases: ['fsme'] },

@@ -238,17 +238,20 @@ function ruleCovid(doses, ctx) {
     hints: ['Hattest du nachgewiesene COVID-19-Infektionen, ist die Basisimmunität meist erreicht – dann als „immun“ markieren.'] };
 }
 
-function ruleZoster(doses, ctx) {
+function ruleZoster(allDoses, ctx) {
+  // Der frühere Lebendimpfstoff (Zostavax) zählt nicht – STIKO empfiehlt trotzdem 2× Shingrix.
+  const doses = allDoses.filter((d) => d.productId !== 'zostavax');
   const n = doses.length;
+  const live = allDoses.length > n ? ['Zostavax (Lebendimpfstoff) wird nicht angerechnet – die STIKO empfiehlt zusätzlich 2 Dosen des Totimpfstoffs.'] : [];
   const ind = (ctx.age ?? 0) >= 60 || ((ctx.age ?? 0) >= 50 && ctx.profile.chronic);
   const detail = 'STIKO: Ab 60 Jahren (bei Grunderkrankungen ab 50) 2 Impfungen mit dem Totimpfstoff im Abstand von 2–6 Monaten. Keine Auffrischung nötig.';
-  if (n >= 2) return { relevance: ind ? 'standard' : 'none', status: 'ok', headline: 'Vollständig (2 Dosen)', detail };
+  if (n >= 2) return { relevance: ind ? 'standard' : 'none', status: 'ok', headline: 'Vollständig (2 Dosen)', detail, hints: live };
   if (n === 1) {
     const nextDue = addMonths(doses[0].date, 2);
-    return { relevance: ind ? 'standard' : 'indication', status: 'incomplete', headline: `2. Dosis zwischen ${de(nextDue)} und ${de(addMonths(doses[0].date, 6))}`, nextDue, nextLabel: '2. Gürtelrose-Dosis', detail };
+    return { relevance: ind ? 'standard' : 'indication', status: 'incomplete', headline: `2. Dosis zwischen ${de(nextDue)} und ${de(addMonths(doses[0].date, 6))}`, nextDue, nextLabel: '2. Gürtelrose-Dosis', detail, hints: live };
   }
-  if (!ind) return { relevance: 'none', status: 'none', headline: 'Standard ab 60 Jahren', detail };
-  return { relevance: 'standard', status: 'missing', headline: '2 Impfungen empfohlen', detail, nextDue: ctx.today, nextLabel: 'Gürtelrose-Impfung' };
+  if (!ind) return { relevance: 'none', status: 'none', headline: 'Standard ab 60 Jahren', detail, hints: live };
+  return { relevance: 'standard', status: 'missing', headline: '2 Impfungen empfohlen', detail, nextDue: ctx.today, nextLabel: 'Gürtelrose-Impfung', hints: live };
 }
 
 function ruleRSV(doses, ctx) {

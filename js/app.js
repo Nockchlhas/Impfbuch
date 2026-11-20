@@ -1,7 +1,8 @@
 import { DISEASES, DISEASE_BY_ID, PRODUCTS, PRODUCT_BY_ID, COUNTRIES, COUNTRY_BY_CODE, REGIONS, DATA_STAND } from './data.js';
 import { STATUS, LEVEL_LABEL, makeContext, evaluateAll, evaluateTrip, buildReminders, summarize, isRelevant } from './rules.js';
-import { addDays, de, deLong, diffDays, relative, todayISO, ageAt } from './dates.js';
+import { addDays, de, deLong, diffDays, relative, todayISO, ageAt, parseDateInput, formatDateTyping } from './dates.js';
 import { buildICS } from './ics.js';
+import { suggestVaccines, detectProduct } from './search.js';
 import { load, save, uid, migrate, emptyState, requestPersistence } from './store.js';
 
 let state = load();
@@ -319,6 +320,7 @@ function openSheet({ title, left = 'Schließen', right = null, body, onRight, on
     y0 = null;
     if (dy > 90) closeSheet(entry);
   });
+  bindDateInputs(el);
   onMount?.(el, entry);
   return entry;
 }
@@ -408,6 +410,50 @@ function productOptions(selected) {
     .map((p) => `<option value="${p.id}" ${p.id === selected ? 'selected' : ''}>${h(p.name)}</option>`).join('')}</optgroup>`).join('');
 }
 
+// ------------------------------------------------------------ Datumsfelder
+// Eintippen statt Kalender: Zifferntastatur, automatische Punkte, Kalender optional über das Symbol.
+
+function dateInput(id, iso, max) {
+  return `<span class="date-wrap"><input id="${id}" class="date-text" data-date value="${iso ? de(iso) : ''}" inputmode="decimal"
+      placeholder="TT.MM.JJJJ" autocomplete="off" autocorrect="off" spellcheck="false" maxlength="10" enterkeyhint="done">
+    <span class="date-cal" title="Kalender">${ICON.cal}<input type="date" tabindex="-1" aria-label="Im Kalender wählen" value="${h(iso || '')}" ${max ? `max="${max}"` : ''}></span></span>`;
+}
+
+function bindDateInputs(root) {
+  root.querySelectorAll('input[data-date]').forEach((inp) => {
+    const nat = inp.parentElement.querySelector('input[type="date"]');
+    // Vorhandenes Datum markieren, damit neues Tippen es ersetzt (leeres Feld: nichts tun)
+    inp.addEventListener('focus', () => { if (inp.value) inp.setSelectionRange(0, inp.value.length); });
+    inp.addEventListener('mouseup', (e) => { if (inp.value && inp.selectionStart === inp.selectionEnd && inp.dataset.fresh !== '0') { e.preventDefault(); inp.setSelectionRange(0, inp.value.length); } inp.dataset.fresh = '0'; });
+    inp.addEventListener('blur', () => { inp.dataset.fresh = '1'; });
+    inp.addEventListener('input', (e) => {
+      const deleting = (e.inputType || '').startsWith('delete');
+      const v = formatDateTyping(inp.value, deleting);
+      if (v !== inp.value) inp.value = v;
+      inp.classList.remove('invalid');
+    });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+    inp.addEventListener('blur', () => {
+      if (!inp.value.trim()) return;
+      const iso = parseDateInput(inp.value, today);
+      if (iso) { inp.value = de(iso); if (nat) nat.value = iso; }
+      inp.classList.toggle('invalid', !iso);
+    });
+    nat?.addEventListener('change', () => { if (nat.value) { inp.value = de(nat.value); inp.classList.remove('invalid'); } });
+  });
+}
+
+// '' = leer, null = ungültig, sonst ISO-Datum
+function readDate(root, id) {
+  const raw = root.querySelector(`#${id}`).value.trim();
+  if (!raw) return '';
+  return parseDateInput(raw, today);
+}
+
+function productHint(p) {
+  return h(`${p.name}${p.examples ? ` (z. B. ${p.examples})` : ''}`);
+}
+
 function openVaccForm(editId, preset = {}, afterSave) {
   const existing = editId ? state.vaccinations.find((v) => v.id === editId) : null;
   const v = existing ? { ...existing } : { date: today, productId: preset.productId || '', productName: '', diseases: preset.diseases || [], batch: '', doctor: '', note: '' };
@@ -419,10 +465,13 @@ function openVaccForm(editId, preset = {}, afterSave) {
   const body = `
     <h2 class="section-title">Impfung</h2>
     <div class="card list">
-      <div class="field"><label for="f-date">Datum</label><input type="date" id="f-date" value="${h(v.date)}" max="${today}" required></div>
-      <div class="field stack"><label for="f-prod">Impfstoff</label><select id="f-prod">${productOptions(v.productId)}</select>
-        <div class="hint" id="f-ex">${prod?.examples ? `z. B. ${h(prod.examples)}` : ''}</div></div>
-      <div class="field"><label for="f-name">Handelsname</label><input id="f-name" value="${h(v.productName)}" placeholder="optional" autocomplete="off"></div>
+      <div class="field"><label for="f-date">Datum</label>${dateInput('f-date', v.date, today)}</div>
+      <div class="field stack"><label for="f-name">Name des Impfstoffs</label>
+        <input id="f-name" value="${h(v.productName)}" placeholder="z. B. Boostrix, Comirnaty, FSME-Immun" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+        <div class="hint">Steht im Impfausweis meist auf dem Aufkleber. Auch Begriffe wie „Grippe“ oder „Zecken“ gehen.</div></div>
+      <div class="sugg" id="f-sugg" hidden></div>
+      <div class="field stack"><label for="f-prod">Impfstoff-Typ</label><select id="f-prod">${productOptions(v.productId)}</select>
+        <div class="hint" id="f-ex">${prod ? productHint(prod) : 'Wird beim Tippen des Namens vorgeschlagen.'}</div></div>
     </div>
     <h2 class="section-title">Schützt gegen</h2>
     <div class="card"><div class="disease-grid" id="f-dis">${diseaseChecks}</div></div>
@@ -442,10 +491,54 @@ function openVaccForm(editId, preset = {}, afterSave) {
     body,
     onMount(el, entry) {
       const sel = el.querySelector('#f-prod');
+      const nameInp = el.querySelector('#f-name');
+      const sugg = el.querySelector('#f-sugg');
+      const hint = el.querySelector('#f-ex');
+      // Typ wurde von Hand gewählt → nicht mehr automatisch überschreiben
+      let manual = !!existing;
+
+      const applyProduct = (pid, how) => {
+        const p = PRODUCT_BY_ID[pid];
+        sel.value = pid;
+        if (p?.diseases.length) el.querySelectorAll('#f-dis input').forEach((i) => { i.checked = p.diseases.includes(i.value); });
+        hint.innerHTML = p ? `${how ? `<span class="ok-mark">✓ ${h(how)}:</span> ` : ''}${productHint(p)}` : '';
+      };
+
+      const showSuggestions = () => {
+        const q = nameInp.value.trim();
+        const list = q ? suggestVaccines(q) : [];
+        if (!q) { sugg.hidden = true; sugg.innerHTML = ''; return; }
+        sugg.hidden = false;
+        sugg.innerHTML = list.length ? list.map((x, i) => `<button type="button" class="sugg-row" data-i="${i}">
+            <div class="main"><div class="title">${h(x.label)}${x.kind === 'keyword' ? ' <span class="chip">Begriff</span>' : ''}</div>
+            <div class="meta">${h(x.product.name)} · ${h(x.product.diseases.map((d) => DISEASE_BY_ID[d].name).join(', ') || 'Krankheiten selbst wählen')}</div></div>
+            <span class="pick">Übernehmen</span></button>`).join('')
+          : `<div class="sugg-empty">Kein Impfstoff mit diesem Namen bekannt – wähle den Typ unten aus oder „Anderer Impfstoff …“.</div>`;
+        sugg.querySelectorAll('.sugg-row').forEach((b) => {
+          b.addEventListener('pointerdown', (e) => e.preventDefault());
+          b.addEventListener('click', () => {
+            const x = list[Number(b.dataset.i)];
+            if (x.kind === 'brand') nameInp.value = x.label;
+            manual = true;
+            applyProduct(x.productId, 'Übernommen');
+            sugg.hidden = true;
+            nameInp.blur();
+          });
+        });
+        // Eindeutiger Treffer → Typ schon mal automatisch setzen
+        const auto = detectProduct(q);
+        if (auto && !manual) applyProduct(auto.productId, 'Erkannt');
+      };
+
+      nameInp.addEventListener('input', showSuggestions);
+      nameInp.addEventListener('focus', () => { if (nameInp.value.trim()) showSuggestions(); });
+      nameInp.addEventListener('blur', () => setTimeout(() => { sugg.hidden = true; }, 150));
+      nameInp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); nameInp.blur(); } });
+
       sel.addEventListener('change', () => {
-        const p = PRODUCT_BY_ID[sel.value];
-        el.querySelector('#f-ex').textContent = p?.examples ? `z. B. ${p.examples}` : sel.value === 'other' ? 'Wähle unten, wogegen der Impfstoff schützt.' : '';
-        if (p && p.diseases.length) el.querySelectorAll('#f-dis input').forEach((i) => { i.checked = p.diseases.includes(i.value); });
+        manual = true;
+        applyProduct(sel.value, '');
+        if (sel.value === 'other') hint.textContent = 'Wähle unten, wogegen der Impfstoff schützt.';
       });
       el.querySelector('#f-del')?.addEventListener('click', () => {
         if (!confirm('Diese Impfung wirklich löschen?')) return;
@@ -454,12 +547,20 @@ function openVaccForm(editId, preset = {}, afterSave) {
       });
     },
     onRight(el, entry) {
-      const date = el.querySelector('#f-date').value;
-      const productId = el.querySelector('#f-prod').value;
+      const date = readDate(el, 'f-date');
+      if (date === null) return toast('Datum bitte als TT.MM.JJJJ eingeben');
+      let productId = el.querySelector('#f-prod').value;
+      if (!productId) {
+        const auto = detectProduct(el.querySelector('#f-name').value);
+        if (auto) {
+          productId = auto.productId;
+          el.querySelectorAll('#f-dis input').forEach((i) => { i.checked = auto.product.diseases.includes(i.value); });
+        }
+      }
       const diseases = [...el.querySelectorAll('#f-dis input:checked')].map((i) => i.value);
       if (!date) return toast('Bitte ein Datum angeben');
       if (date > today) return toast('Das Datum liegt in der Zukunft');
-      if (!productId) return toast('Bitte einen Impfstoff wählen');
+      if (!productId) return toast('Bitte Namen eingeben oder Impfstoff-Typ wählen');
       if (!diseases.length) return toast('Bitte mindestens eine Krankheit wählen');
       const rec = {
         id: existing?.id || uid(), date, productId, diseases,
@@ -498,8 +599,8 @@ function openTripForm(editId) {
     </div>
     <h2 class="section-title">Zeitraum</h2>
     <div class="card list">
-      <div class="field"><label for="t-start">Abreise</label><input type="date" id="t-start" value="${h(t.start)}"></div>
-      <div class="field"><label for="t-end">Rückkehr</label><input type="date" id="t-end" value="${h(t.end)}"></div>
+      <div class="field"><label for="t-start">Abreise</label>${dateInput('t-start', t.start)}</div>
+      <div class="field"><label for="t-end">Rückkehr</label>${dateInput('t-end', t.end)}</div>
     </div>
     <h2 class="section-title">Reiseart</h2>
     <div class="card list">${toggles.map(([k, l, m]) => `<label class="toggle-row"><div class="main"><div>${l}</div><div class="meta">${m}</div></div>
@@ -526,8 +627,9 @@ function openTripForm(editId) {
     },
     onRight(el, entry) {
       if (!t.countries.length) return toast('Bitte mindestens ein Land wählen');
-      const start = el.querySelector('#t-start').value;
-      let end = el.querySelector('#t-end').value;
+      const start = readDate(el, 't-start');
+      let end = readDate(el, 't-end');
+      if (start === null || end === null) return toast('Datum bitte als TT.MM.JJJJ eingeben');
       if (start && end && end < start) return toast('Rückkehr liegt vor der Abreise');
       if (start && !end) end = start;
       const rec = { id: existing?.id || uid(), name: el.querySelector('#t-name').value.trim(), countries: t.countries, start, end };
@@ -647,7 +749,7 @@ function openProfile(welcome = false) {
     <h2 class="section-title">Über dich</h2>
     <div class="card list">
       <div class="field"><label for="p-name">Name</label><input id="p-name" value="${h(p.name)}" placeholder="optional" autocomplete="given-name"></div>
-      <div class="field"><label for="p-birth">Geburtsdatum</label><input type="date" id="p-birth" value="${h(p.birthdate)}" max="${today}"></div>
+      <div class="field"><label for="p-birth">Geburtsdatum</label>${dateInput('p-birth', p.birthdate, today)}</div>
       <div class="field"><label for="p-sex">Geschlecht</label><select id="p-sex">
         <option value="" ${!p.sex ? 'selected' : ''}>keine Angabe</option><option value="f" ${p.sex === 'f' ? 'selected' : ''}>weiblich</option>
         <option value="m" ${p.sex === 'm' ? 'selected' : ''}>männlich</option><option value="d" ${p.sex === 'd' ? 'selected' : ''}>divers</option></select></div>
@@ -670,7 +772,10 @@ function openProfile(welcome = false) {
     body,
     onRight(el, entry) {
       state.profile.name = el.querySelector('#p-name').value.trim();
-      state.profile.birthdate = el.querySelector('#p-birth').value;
+      const birth = readDate(el, 'p-birth');
+      if (birth === null) return toast('Geburtsdatum bitte als TT.MM.JJJJ eingeben');
+      if (birth > today) return toast('Das Geburtsdatum liegt in der Zukunft');
+      state.profile.birthdate = birth;
       state.profile.sex = el.querySelector('#p-sex').value;
       el.querySelectorAll('[data-k]').forEach((i) => { state.profile[i.dataset.k] = i.checked; });
       const lead = el.querySelector('#p-lead');
