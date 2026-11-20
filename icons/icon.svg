@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16a191"/>
+      <stop offset="1" stop-color="#0b6a61"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#g)"/>
+  <!-- Impfbuch -->
+  <rect x="282" y="226" width="460" height="580" rx="44" fill="#ffffff"/>
+  <rect x="282" y="226" width="84" height="580" rx="40" fill="#e3f4f1"/>
+  <rect x="340" y="226" width="26" height="580" fill="#e3f4f1"/>
+  <!-- Schild mit Haken -->
+  <path d="M556 360 452 398v84c0 72 44 130 104 152 60-22 104-80 104-152v-84z" fill="#0e7a70"/>
+  <path d="m505 495 36 36 66-74" fill="none" stroke="#ffffff" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="440" y="690" width="232" height="26" rx="13" fill="#cfe6e2"/>
+  <rect x="440" y="736" width="160" height="26" rx="13" fill="#cfe6e2"/>
+</svg>
