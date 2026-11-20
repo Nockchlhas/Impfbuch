@@ -3,6 +3,7 @@ import { STATUS, LEVEL_LABEL, makeContext, evaluateAll, evaluateTrip, buildRemin
 import { addDays, de, deLong, diffDays, relative, todayISO, ageAt, parseDateInput, formatDateTyping } from './dates.js';
 import { buildICS } from './ics.js';
 import { suggestVaccines, detectProduct } from './search.js';
+import { parseImport } from './importer.js';
 import { load, save, uid, migrate, emptyState, requestPersistence } from './store.js';
 
 let state = load();
@@ -101,6 +102,7 @@ function onAction(e) {
     case 'goto': location.hash = id; return;
     case 'backup': return exportBackup();
     case 'import': return document.getElementById('import-file').click();
+    case 'import-code': return openImport();
     case 'reset': return resetAll();
     case 'install-help': return openInstallHelp();
     default:
@@ -189,10 +191,13 @@ function renderPass() {
   const list = state.vaccinations.slice().sort((a, b) => b.date.localeCompare(a.date));
   let out = `<header class="head"><div><h1>Impfpass</h1><p class="sub">${list.length} Impfung${list.length === 1 ? '' : 'en'} eingetragen</p></div>
     <button class="icon-btn" data-action="add-vacc" aria-label="Impfung eintragen">${ICON.plus}</button></header>`;
+  const scanRow = `<div class="card" style="margin-top:18px"><button class="row" data-action="import-code"><span style="font-size:22px">📷</span>
+    <div class="main"><div class="title">Weitere Seiten scannen lassen</div><div class="meta">Fotos an Claude schicken, Import-Code hier einfügen</div></div>${chev}</button></div>`;
   if (!list.length) {
     return out + `<div class="card"><div class="empty"><div class="big">💉</div><h3>Noch keine Impfungen</h3>
       <p>Nimm deinen gelben Impfausweis zur Hand und trage deine Impfungen ein – am besten die neuesten zuerst.</p>
-      <button class="btn" data-action="add-vacc">Erste Impfung eintragen</button></div></div>`;
+      <div class="btn-stack" style="max-width:320px;margin:0 auto"><button class="btn" data-action="import-code">📷 Impfpass scannen lassen</button>
+      <button class="btn secondary" data-action="add-vacc">Selbst eintragen</button></div></div></div>`;
   }
   let year = null;
   for (const v of list) {
@@ -210,7 +215,7 @@ function renderPass() {
       <div class="chips" style="margin-top:6px">${(v.diseases || []).map((d) => `<span class="chip">${h(DISEASE_BY_ID[d]?.name || d)}</span>`).join('')}</div>
       </div>${chev}</button>`;
   }
-  out += `</div>`;
+  out += `</div>${scanRow}`;
   return out;
 }
 
@@ -267,7 +272,8 @@ function renderSettings() {
 
   out += `<h2 class="section-title">Daten</h2><div class="card list">
     <button class="row" data-action="backup"><div class="dot tone-blue"></div><div class="main"><div class="title">Backup sichern</div><div class="meta">Als Datei, z. B. in iCloud Drive</div></div>${chev}</button>
-    <button class="row" data-action="import"><div class="dot tone-blue"></div><div class="main"><div class="title">Backup wiederherstellen</div></div>${chev}</button>
+    <button class="row" data-action="import-code"><div class="dot tone-green"></div><div class="main"><div class="title">Impfungen importieren</div><div class="meta">Import-Code aus eingescannten Impfpass-Fotos</div></div>${chev}</button>
+    <button class="row" data-action="import"><div class="dot tone-blue"></div><div class="main"><div class="title">Backup wiederherstellen</div><div class="meta">Ersetzt alle aktuellen Daten</div></div>${chev}</button>
     <button class="row" data-action="reset"><div class="dot tone-red"></div><div class="main"><div class="title" style="color:var(--red)">Alle Daten löschen</div></div></button>
   </div><input type="file" id="import-file" accept="application/json,.json" hidden>
   <p class="section-foot">Deine Daten bleiben ausschließlich auf diesem iPhone. Sichere regelmäßig ein Backup.</p>`;
@@ -912,6 +918,95 @@ function resetAll() {
   persist();
   render();
   toast('Alle Daten gelöscht');
+}
+
+// ------------------------------------------------------------ Import aus gescanntem Impfpass
+
+function openImport() {
+  const body = `<div class="detail-hero"><div style="font-size:44px">📷</div><h3>Impfpass scannen lassen</h3>
+      <div class="short" style="margin-top:6px">Claude liest deine Impfpass-Fotos aus – auch Handschrift – und erstellt einen Import-Code.</div></div>
+    <h2 class="section-title">So geht's</h2>
+    <div class="card list">
+      <div class="prose"><p><b>1.</b> Fotografiere die Seiten mit Impfungen – hell, gerade, ohne Spiegelung. Gern mehrere Seiten auf einmal.</p></div>
+      <div class="prose"><p><b>2.</b> Schick die Fotos an Claude, z. B. mit: <i>„Lies meinen Impfpass aus und erstelle einen Import-Code für die Impfbuch-App.“</i></p></div>
+      <div class="prose"><p><b>3.</b> Kopiere den Code aus der Antwort und füge ihn hier ein. Vor dem Übernehmen siehst du jede Impfung noch einmal.</p></div>
+    </div>
+    <h2 class="section-title">Import-Code</h2>
+    <div class="card"><div class="field stack"><textarea id="imp-text" rows="6" placeholder='{"impfbuch":"import","vaccinations":[…]}' autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="font: 13px/1.4 ui-monospace, Menlo, monospace"></textarea></div></div>
+    <div class="btn-stack">
+      <button class="btn secondary block" id="imp-paste">Aus Zwischenablage einfügen</button>
+      <button class="btn secondary block" id="imp-file">Datei wählen …</button>
+      <input type="file" id="imp-file-input" accept="application/json,.json,.txt,text/plain" hidden>
+    </div>
+    <p class="section-foot">Deine Fotos gehen nur an Claude im Chat. Die App selbst schickt keine Daten weg.</p>`;
+  openSheet({
+    title: 'Importieren',
+    left: 'Abbrechen',
+    right: 'Prüfen',
+    body,
+    onMount(el) {
+      const ta = el.querySelector('#imp-text');
+      el.querySelector('#imp-paste').addEventListener('click', async () => {
+        try { ta.value = await navigator.clipboard.readText(); toast('Eingefügt'); }
+        catch { ta.focus(); toast('Bitte lange ins Feld tippen und „Einsetzen“ wählen'); }
+      });
+      const fi = el.querySelector('#imp-file-input');
+      el.querySelector('#imp-file').addEventListener('click', () => fi.click());
+      fi.addEventListener('change', () => {
+        const f = fi.files?.[0];
+        if (!f) return;
+        const r = new FileReader();
+        r.onload = () => { ta.value = r.result; toast('Datei geladen – jetzt „Prüfen“ tippen'); };
+        r.readAsText(f);
+      });
+    },
+    onRight(el, entry) {
+      const res = parseImport(el.querySelector('#imp-text').value, state.vaccinations, today);
+      if (res.error) return toast(res.error);
+      openImportPreview(res.items, () => closeSheet(entry));
+    },
+  });
+}
+
+function openImportPreview(items, onDone) {
+  const sorted = items.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const okCount = items.filter((i) => i.ok && !i.duplicate).length;
+  const row = (i) => {
+    const prod = PRODUCT_BY_ID[i.productId];
+    const flags = [
+      i.duplicate ? '<span class="pill tone-gray">schon vorhanden</span>' : '',
+      ...i.issues.map((x) => `<span class="pill tone-red">${h(x)}</span>`),
+    ].join(' ');
+    return `<label class="toggle-row" style="align-items:flex-start">
+      <span class="switch" style="margin-top:4px"><input type="checkbox" data-key="${i.key}" ${i.ok && !i.duplicate ? 'checked' : ''} ${i.ok ? '' : 'disabled'}><span></span></span>
+      <div class="main"><div style="font-weight:600">${i.date ? de(i.date) : '??.??.????'} · ${h(i.productName || prod?.name || 'Unbekannt')}</div>
+        <div class="meta">${h(prod && i.productName ? prod.name : '')}${i.batch ? ` · Ch.-B. ${h(i.batch)}` : ''}${i.doctor ? ` · ${h(i.doctor)}` : ''}</div>
+        <div class="chips" style="margin-top:6px">${i.diseases.map((d) => `<span class="chip">${h(DISEASE_BY_ID[d]?.name || d)}</span>`).join('')}</div>
+        ${flags ? `<div style="margin-top:6px">${flags}</div>` : ''}</div></label>`;
+  };
+  openSheet({
+    title: 'Vorschau',
+    left: 'Zurück',
+    right: 'Übernehmen',
+    body: `<div class="detail-hero"><h3>${items.length} Impfung${items.length === 1 ? '' : 'en'} gefunden</h3>
+      <div class="short">${okCount} neu · ${items.filter((i) => i.duplicate).length} schon vorhanden · ${items.filter((i) => !i.ok).length} unvollständig</div></div>
+      <p class="section-foot" style="margin-top:12px">Bitte kurz mit deinem Impfpass vergleichen. Abgewählte Einträge werden nicht übernommen; unvollständige kannst du danach von Hand ergänzen.</p>
+      <div class="card list" style="margin-top:10px">${sorted.map(row).join('')}</div>`,
+    onRight(el, entry) {
+      const keys = new Set([...el.querySelectorAll('input[data-key]:checked')].map((i) => Number(i.dataset.key)));
+      const chosen = items.filter((i) => keys.has(i.key) && i.ok);
+      if (!chosen.length) return toast('Keine Impfung ausgewählt');
+      for (const i of chosen) {
+        state.vaccinations.push({ id: uid(), date: i.date, productId: i.productId, productName: i.productName, diseases: i.diseases, batch: i.batch, doctor: i.doctor, note: i.note });
+      }
+      persist();
+      closeSheet(entry);
+      onDone?.();
+      location.hash = 'status';
+      render();
+      toast(`${chosen.length} Impfung${chosen.length === 1 ? '' : 'en'} übernommen`);
+    },
+  });
 }
 
 // ------------------------------------------------------------ Installation

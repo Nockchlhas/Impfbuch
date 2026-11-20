@@ -175,3 +175,28 @@ test('Zostavax zählt nicht als Shingrix', () => {
   assert.equal(r.zoster.status, 'missing');
   assert.ok(r.zoster.hints.length);
 });
+
+import { parseImport } from '../js/importer.js';
+
+test('Import-Code: Namen erkennen, Duplikate und Fehler markieren', () => {
+  const existing = [{ id: 'a', date: '2016-12-05', productId: 'tdap-ipv', diseases: ['tetanus', 'diphtherie', 'pertussis', 'polio'] }];
+  const code = '```json\n' + JSON.stringify({ impfbuch: 'import', vaccinations: [
+    { date: '05.12.2016', name: 'Boostrix Polio' },
+    { date: '14.03.1993', name: 'Priorix', doctor: 'Dr. Kim' },
+    { date: '2021-05-20', name: 'Comirnaty', batch: 'EX1234' },
+    { date: '', name: 'Havrix' },
+    { date: '01.01.2000', name: 'Unbekanntix' },
+    { date: '01.06.1995', diseases: ['polio'], name: 'Polio oral' },
+  ] }) + '\n```';
+  const { items, error } = parseImport(code, existing, '2026-11-20');
+  assert.equal(error, null);
+  assert.equal(items[0].duplicate, true);
+  assert.equal(items[1].productId, 'mmr');
+  assert.deepEqual(items[1].diseases, ['masern', 'mumps', 'roeteln']);
+  assert.equal(items[2].productId, 'covid');
+  assert.equal(items[3].ok, false);
+  assert.equal(items[4].ok, false);
+  assert.equal(items[5].ok, true);
+  assert.deepEqual(items[5].diseases, ['polio']);
+  assert.ok(parseImport('quatsch').error);
+});

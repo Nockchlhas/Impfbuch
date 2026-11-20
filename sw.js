@@ -1,8 +1,8 @@
 // Service Worker: Offline-Betrieb + Auslieferung der erzeugten Kalenderdatei.
-const VERSION = 'impfbuch-v2';
+const VERSION = 'impfbuch-v3';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest',
-  'js/app.js', 'js/data.js', 'js/rules.js', 'js/dates.js', 'js/ics.js', 'js/store.js', 'js/search.js',
+  'js/app.js', 'js/data.js', 'js/rules.js', 'js/dates.js', 'js/ics.js', 'js/store.js', 'js/search.js', 'js/importer.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
