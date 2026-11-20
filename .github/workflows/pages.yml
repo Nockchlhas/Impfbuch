@@ -12,9 +12,10 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  # 1. Tests der Impf- und Reiseregeln
   test:
     runs-on: ubuntu-latest
     steps:
@@ -24,12 +25,10 @@ jobs:
           node-version: 22
       - run: npm test
 
-  deploy:
+  # 2. App-Dateien zusammenpacken und hochladen
+  build:
     needs: test
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - name: Nur App-Dateien veröffentlichen
@@ -40,5 +39,21 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
-      - id: deployment
+
+  # 3. Veröffentlichen – als eigener Job, damit der Upload sicher abgeschlossen ist.
+  #    Falls GitHub das Paket trotzdem noch nicht findet: nach 20 s ein zweiter Versuch.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.retry.outputs.page_url || steps.first.outputs.page_url }}
+    steps:
+      - id: first
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - if: steps.first.outcome == 'failure'
+        run: sleep 20
+      - id: retry
+        if: steps.first.outcome == 'failure'
         uses: actions/deploy-pages@v4
